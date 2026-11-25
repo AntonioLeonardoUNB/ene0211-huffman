@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos gerados pelo compactador e mídia/corpus de teste
+*.huff
+*.bmp
+*.wav
+*.mp3
+*.zip
+*.bin
+*.raw
+corpus/
+data/
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
