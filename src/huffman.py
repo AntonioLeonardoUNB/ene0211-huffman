@@ -11,19 +11,23 @@ Responsável por:
 
 from __future__ import annotations
 
+from collections import Counter
+import heapq
+
 
 class Node:
     """Nó de uma árvore binária de Huffman.
 
     Um nó folha representa um símbolo do alfabeto (`simbolo` entre 0 e 255, com
     `esquerda` e `direita` iguais a `None`). Um nó interno representa a fusão de
-    dois subárvores (`simbolo` é `None`).
+    duas subárvores (`simbolo` é `None`).
 
     Critério de desempate determinístico:
     Para garantir que compactador e descompactador construam exatamente a mesma
     árvore a partir apenas das frequências do cabeçalho, comparações entre nós de
-    mesma `frequencia` devem desempatar por um critério totalmente determinístico
-    (por exemplo, `menor_simbolo` presente na subárvore do nó).
+    mesma `frequencia` desempatam por `menor_simbolo` presente na subárvore do nó.
+    Como os conjuntos de folhas dos nós simultaneamente no heap são sempre disjuntos,
+    esse critério garante uma ordenação estrita e 100% determinística.
 
     Attributes:
         frequencia: Frequência acumulada do símbolo ou da subárvore.
@@ -44,18 +48,40 @@ class Node:
         """Inicializa um nó folha ou nó interno da árvore de Huffman.
 
         Contrato:
-        - Se `simbolo` não for `None`, trata-se de folha e `menor_simbolo` deve ser
-          igual a `simbolo`.
-        - Se `simbolo` for `None`, trata-se de nó interno e `menor_simbolo` deve ser
-          `min(esquerda.menor_simbolo, direita.menor_simbolo)`.
+        - `frequencia` deve ser um inteiro estritamente positivo (`> 0`).
+        - Se `simbolo` não for `None`, trata-se de folha (`0 <= simbolo <= 255`) e
+          `menor_simbolo` é igual a `simbolo`.
+        - Se `simbolo` for `None`, trata-se de nó interno (com ambos os filhos
+          presentes) e `menor_simbolo` é `min(esquerda.menor_simbolo, direita.menor_simbolo)`.
 
         Args:
             frequencia: Contagem positiva de ocorrências associada ao nó.
             simbolo: Byte (0..255) para nó folha, ou `None` para nó interno.
             esquerda: Subárvore à esquerda (bit `'0'`).
             direita: Subárvore à direita (bit `'1'`).
+
+        Raises:
+            ValueError: Se a frequência não for positiva, o símbolo estiver fora
+                de `0..255` ou um nó interno não tiver ambos os filhos.
         """
-        raise NotImplementedError("Implementar inicialização do nó de Huffman.")
+        if frequencia <= 0:
+            raise ValueError("A frequência de um nó deve ser um inteiro positivo.")
+
+        self.frequencia = frequencia
+        self.simbolo = simbolo
+        self.esquerda = esquerda
+        self.direita = direita
+
+        if simbolo is not None:
+            if not (0 <= simbolo <= 255):
+                raise ValueError(f"Símbolo fora do intervalo de byte (0..255): {simbolo}")
+            self.menor_simbolo = simbolo
+        else:
+            if esquerda is None or direita is None:
+                raise ValueError(
+                    "Nó interno deve possuir ambos os filhos (esquerda e direita)."
+                )
+            self.menor_simbolo = min(esquerda.menor_simbolo, direita.menor_simbolo)
 
     def eh_folha(self) -> bool:
         """Indica se o nó é uma folha (armazena um símbolo do alfabeto).
@@ -63,7 +89,7 @@ class Node:
         Returns:
             `True` se `self.simbolo is not None`, caso contrário `False`.
         """
-        raise NotImplementedError("Implementar verificação de nó folha.")
+        return self.simbolo is not None
 
     def __lt__(self, outro: Node) -> bool:
         """Define a relação de ordem usada pelo `heapq` na construção da árvore.
@@ -80,7 +106,9 @@ class Node:
             `True` se `self` tiver prioridade maior (deve sair antes do min-heap)
             do que `outro`.
         """
-        raise NotImplementedError("Implementar comparação determinística entre nós.")
+        if self.frequencia != outro.frequencia:
+            return self.frequencia < outro.frequencia
+        return self.menor_simbolo < outro.menor_simbolo
 
 
 def contar_frequencias(dados: bytes) -> dict[int, int]:
@@ -97,7 +125,9 @@ def contar_frequencias(dados: bytes) -> dict[int, int]:
     Returns:
         Dicionário mapeando cada byte (`int` de 0 a 255) à sua contagem (`int`).
     """
-    raise NotImplementedError("Implementar contagem de frequências byte a byte.")
+    # Counter percorre a sequência de bytes em C (muito rápido para arquivos de
+    # milhões de bytes) e dict() retorna um dicionário padrão {byte: contagem}.
+    return dict(Counter(dados))
 
 
 def construir_arvore(frequencias: dict[int, int]) -> Node | None:
@@ -120,7 +150,31 @@ def construir_arvore(frequencias: dict[int, int]) -> Node | None:
     Returns:
         Nó raiz (`Node`) da árvore de Huffman, ou `None` se não houver símbolos.
     """
-    raise NotImplementedError("Implementar construção da árvore de Huffman com heapq.")
+    if not frequencias:
+        return None
+
+    # Ordenamos os itens por símbolo por clareza e legibilidade; mesmo sem isso,
+    # Node.__lt__ já garante determinismo total na extração do min-heap.
+    heap: list[Node] = [
+        Node(frequencia=freq, simbolo=simbolo)
+        for simbolo, freq in sorted(frequencias.items())
+    ]
+    heapq.heapify(heap)
+
+    # Se houver apenas 1 símbolo (K = 1), o laço não executa e retornamos a folha única.
+    while len(heap) > 1:
+        no_esquerda = heapq.heappop(heap)
+        no_direita = heapq.heappop(heap)
+
+        no_pai = Node(
+            frequencia=no_esquerda.frequencia + no_direita.frequencia,
+            simbolo=None,
+            esquerda=no_esquerda,
+            direita=no_direita,
+        )
+        heapq.heappush(heap, no_pai)
+
+    return heap[0]
 
 
 def gerar_tabela_codigos(raiz: Node | None) -> dict[int, str]:
@@ -131,8 +185,8 @@ def gerar_tabela_codigos(raiz: Node | None) -> dict[int, str]:
     - Se `raiz` for uma única folha (arquivo composto por apenas 1 símbolo distinto),
       associa esse símbolo ao código `"0"` (comprimento de 1 bit) para garantir que
       cada ocorrência produza bits graváveis no fluxo.
-    - Para árvores com dois ou mais símbolos, percorre recursivamente (ou
-      iterativamente) atribuindo `"0"` ao ramo esquerdo e `"1"` ao ramo direito.
+    - Para árvores com dois ou mais símbolos, percorre a árvore atribuindo `"0"`
+      ao ramo esquerdo e `"1"` ao ramo direito.
 
     Args:
         raiz: Nó raiz da árvore de Huffman, ou `None`.
@@ -141,4 +195,26 @@ def gerar_tabela_codigos(raiz: Node | None) -> dict[int, str]:
         Dicionário mapeando cada símbolo (`int` de 0 a 255) ao seu código binário
         em formato de string composta por `'0'` e `'1'`.
     """
-    raise NotImplementedError("Implementar geração da tabela de códigos de Huffman.")
+    if raiz is None:
+        return {}
+
+    # Caso degenerado (K = 1): apenas 1 símbolo distinto recebe código "0" de 1 bit.
+    if raiz.eh_folha():
+        assert raiz.simbolo is not None
+        return {raiz.simbolo: "0"}
+
+    tabela: dict[int, str] = {}
+
+    def _percorrer(no: Node, prefixo: str) -> None:
+        if no.eh_folha():
+            assert no.simbolo is not None
+            tabela[no.simbolo] = prefixo
+            return
+
+        if no.esquerda is not None:
+            _percorrer(no.esquerda, prefixo + "0")
+        if no.direita is not None:
+            _percorrer(no.direita, prefixo + "1")
+
+    _percorrer(raiz, "")
+    return tabela
